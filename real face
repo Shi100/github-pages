@@ -1,0 +1,222 @@
+"use client";
+import React from "react";
+import BlackSpinner from "../components/black-spinner";
+
+("use client");
+
+const SUBSCRIPTION_PLANS = {
+  free: { limit: 10, name: "Free", price: 0 },
+  basic: { limit: 50, name: "Basic", price: 9.99 },
+  pro: { limit: Infinity, name: "Pro", price: 19.99 },
+};
+
+function MainComponent() {
+  const [generatedImage, setGeneratedImage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("stable-diffusion");
+  const [dailyCount, setDailyCount] = useState(0);
+  const [userPlan, setUserPlan] = useState(SUBSCRIPTION_PLANS.free);
+
+  useEffect(() => {
+    const storedDailyCount = parseInt(
+      localStorage.getItem("dailyCount") || "0",
+      10
+    );
+    const lastReset = localStorage.getItem("lastReset");
+    const today = new Date().toDateString();
+
+    if (lastReset !== today) {
+      localStorage.setItem("dailyCount", "0");
+      localStorage.setItem("lastReset", today);
+      setDailyCount(0);
+    } else {
+      setDailyCount(storedDailyCount);
+    }
+  }, []);
+
+  const incrementDailyCount = () => {
+    const newCount = dailyCount + 1;
+    setDailyCount(newCount);
+    localStorage.setItem("dailyCount", newCount.toString());
+  };
+  const handleSubscriptionUpgrade = (plan) => {
+    setUserPlan(SUBSCRIPTION_PLANS[plan]);
+    setIsSubscriptionOpen(false);
+  };
+  const generateImage = async () => {
+    if (dailyCount >= userPlan.limit) {
+      setIsSubscriptionOpen(true);
+      return;
+    }
+
+    setIsLoading(true);
+    let imageUrl = "";
+    try {
+      if (selectedModel === "google-gemini") {
+        const response = await fetch("/integrations/google-gemini-1-5-flash/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: imagePrompt }],
+          }),
+        });
+        const data = await response.json();
+        imageUrl = data.choices[0].message.content;
+      } else if (selectedModel === "anthropic-claude") {
+        const response = await fetch("/integrations/anthropic-claude/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: [{ role: "user", content: imagePrompt }],
+          }),
+        });
+        const data = await response.json();
+        imageUrl = data.choices[0].message.content;
+      } else {
+        const response = await fetch(
+          `/integrations/${selectedModel}/?prompt=${encodeURIComponent(
+            imagePrompt
+          )}`,
+          { method: "GET" }
+        );
+        const data = await response.json();
+        imageUrl = data.data?.[0] || "";
+      }
+      setGeneratedImage(imageUrl);
+      incrementDailyCount();
+    } catch (error) {
+      console.error("Error generating image:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  const handleCopy = () => {
+    navigator.clipboard.writeText(generatedImage);
+  };
+  const handleDownload = (url) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "generated-image.png";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="flex flex-col items-center min-h-screen bg-white text-[#151515] font-open-sans p-4 md:p-8">
+      <h1 className="text-5xl md:text-7xl font-bold mb-12 text-center">
+        AI Image Studio
+      </h1>
+
+      {isSubscriptionOpen && (
+        <SubscriptionPage
+          onClose={() => setIsSubscriptionOpen(false)}
+          onUpgrade={handleSubscriptionUpgrade}
+          plans={SUBSCRIPTION_PLANS}
+        />
+      )}
+
+      <div className="w-full max-w-3xl">
+        <div className="mb-8">
+          <div className="flex flex-wrap gap-4 mb-4">
+            <button
+              onClick={() => setSelectedModel("stable-diffusion")}
+              className={`flex-1 p-3 rounded-lg ${
+                selectedModel === "stable-diffusion"
+                  ? "bg-[#1E1E1E] text-white"
+                  : "bg-[#F5F5F5] text-[#151515]"
+              }`}
+            >
+              Stable Diffusion
+            </button>
+            <button
+              onClick={() => setSelectedModel("dall-e")}
+              className={`flex-1 p-3 rounded-lg ${
+                selectedModel === "dall-e"
+                  ? "bg-[#1E1E1E] text-white"
+                  : "bg-[#F5F5F5] text-[#151515]"
+              }`}
+            >
+              DALL-E
+            </button>
+            <button
+              onClick={() => setSelectedModel("google-gemini")}
+              className={`flex-1 p-3 rounded-lg ${
+                selectedModel === "google-gemini"
+                  ? "bg-[#1E1E1E] text-white"
+                  : "bg-[#F5F5F5] text-[#151515]"
+              }`}
+            >
+              Google Gemini
+            </button>
+            <button
+              onClick={() => setSelectedModel("anthropic-claude")}
+              className={`flex-1 p-3 rounded-lg ${
+                selectedModel === "anthropic-claude"
+                  ? "bg-[#1E1E1E] text-white"
+                  : "bg-[#F5F5F5] text-[#151515]"
+              }`}
+            >
+              Claude
+            </button>
+          </div>
+
+          <input
+            type="text"
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            placeholder="Describe the image you want to create..."
+            className="w-full p-4 rounded-lg bg-white text-[#151515] border border-[#2A2A2A] placeholder-[#A4A4A4] text-lg"
+          />
+          <button
+            onClick={generateImage}
+            disabled={isLoading}
+            className="w-full mt-4 p-4 bg-[#1E1E1E] text-white rounded-lg hover:bg-[#2A2A2A] transition-colors duration-200 text-lg font-medium"
+          >
+            {isLoading ? "Creating..." : "Generate Image"}
+          </button>
+        </div>
+        <div className="flex justify-center mb-8">
+          <p className="text-[#2A2A2A]">
+            {`You have ${
+              userPlan.limit - dailyCount
+            } image generations remaining today.`}
+          </p>
+        </div>
+        <div className="flex justify-center">
+          {isLoading ? (
+            <BlackSpinner />
+          ) : generatedImage ? (
+            <div className="flex flex-col items-center">
+              <img
+                src={generatedImage}
+                alt="AI Generated artwork"
+                className="w-full rounded-lg shadow-lg"
+              />
+              <div className="flex space-x-4 mt-4">
+                <button
+                  onClick={handleCopy}
+                  className="p-3 bg-[#1E1E1E] text-white rounded-lg hover:bg-[#2A2A2A] transition-colors duration-200"
+                >
+                  Copy Link
+                </button>
+                <button
+                  onClick={() => handleDownload(generatedImage)}
+                  className="p-3 bg-[#1E1E1E] text-white rounded-lg hover:bg-[#2A2A2A] transition-colors duration-200"
+                >
+                  Download
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[#2A2A2A]">Your creation will appear here</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default MainComponent;
